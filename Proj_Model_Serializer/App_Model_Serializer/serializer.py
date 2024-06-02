@@ -1,6 +1,6 @@
 from django.core.exceptions import ImproperlyConfigured
 from rest_framework.exceptions import ValidationError
-from rest_framework.relations import PrimaryKeyRelatedField
+from rest_framework.relations import PrimaryKeyRelatedField, ManyRelatedField
 from rest_framework.serializers import ModelSerializer
 
 from .models import Employee, Department
@@ -32,6 +32,7 @@ class DjangoSerializerValidator:
 
 
 class DjangoCrudModelSerializer(ModelSerializer):
+
     class Meta:
         model = None
         fields = []
@@ -42,18 +43,22 @@ class DjangoCrudModelSerializer(ModelSerializer):
             raise ImproperlyConfigured(f'model or fields Missing in {self.__class__.__name__} Meta Class')
 
     def to_representation(self, instance):
+        # is_form = self.context.get('is_form', False)
         data = super().to_representation(instance)
         data['rec_id'] = str(instance.id + 10000)
         data['salt'] = instance.salt
         for k, v in self.get_fields().items():
-            if k == 'employees':
-                print(k, v)
             if isinstance(v, PrimaryKeyRelatedField):
                 inst = getattr(instance, k, None)
                 if inst:
                     data[k] = {'value': str(inst.id + 10000),
                                'salt': inst.salt,
                                'label': str(inst)}
+            if isinstance(v, ManyRelatedField):
+                qs = getattr(instance, k, None)
+                data[k] = [{'value': str(inst.id + 10000),
+                            'salt': inst.salt,
+                            'label': str(inst)} for inst in qs.all()]
         return data
 
 

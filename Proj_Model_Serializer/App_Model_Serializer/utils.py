@@ -25,4 +25,18 @@ def custom_exception_handler(exc, context):
     return Response({'error': 'Something Went Wrong'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
+def get_test_post_data():
+    return {
+        'name': 'IT',
+        'employees': [
+            {
+                'name': '100021',
+            },
+            {
+                'name': '100022',
+            },
+            {
+                'name': '100023',
+            },
+        ]
+    }

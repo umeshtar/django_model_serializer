@@ -20,8 +20,8 @@ class AllObjectsManager(models.Manager):
 class MyModel(models.Model):
     salt = models.CharField(max_length=100, null=True, blank=True)
     is_del = models.BooleanField(default=False)
-    all_objects = AllObjectsManager()
     objects = MyManager()
+    all_objects = AllObjectsManager()
 
     class Meta:
         abstract = True
