@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'App_Model_Serializer',
+    'rest_framework',
 ]
 
 MIDDLEWARE = [
@@ -66,6 +68,10 @@ TEMPLATES = [
         },
     },
 ]
+
+REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'App_Model_Serializer.utils.custom_exception_handler',
+}
 
 WSGI_APPLICATION = 'Proj_Model_Serializer.wsgi.application'
 
