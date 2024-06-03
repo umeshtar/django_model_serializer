@@ -7,13 +7,15 @@ from rest_framework.relations import PrimaryKeyRelatedField
 from rest_framework.response import Response
 
 from .models import Employee, Department
-from .serializer import EmployeeSerializer, DepartmentSerializer
+from .serializer import EmployeeListRetrieveSerializer, EmployeeCreateUpdateSerializer, \
+    DepartmentListRetrieveSerializer, DepartmentCreateUpdateSerializer
 from .utils import get_test_post_data
 
 
-class GenericAPICrudView(GenericAPIView):
+class GenericAPICRUDView(GenericAPIView):
     model = None
     form_configs = None
+    list_serializer_class = None
     module_name = 'Create New Module'
 
     def __init__(self, *args, **kwargs):
@@ -21,6 +23,11 @@ class GenericAPICrudView(GenericAPIView):
         if self.model is None:
             raise ImproperlyConfigured(f"Attribute 'model' missing in {self.__class__.__name__}")
 
+    def get_list_serializer(self, *args, **kwargs):
+        if self.list_serializer_class:
+            return self.list_serializer_class(*args, **kwargs)
+        return self.get_serializer(*args, **kwargs)
+    
     def get_form_configs(self):
         return self.form_configs
 
@@ -60,66 +67,73 @@ class GenericAPICrudView(GenericAPIView):
         action = request.GET.get('action', None)
         response = {'data': None}
         if action == 'get_data':
-            response['data'] = self.get_serializer(self.get_queryset(), many=True).data
+            response['data'] = self.get_list_serializer(self.get_queryset(), many=True).data
         if action == 'fetch_record':
-            response['data'] = self.get_serializer(self.get_object()).data
+            response['data'] = self.get_list_serializer(self.get_object()).data
         if request.GET.get('get_form_configs', False) is True:
             response['form_configs'] = self.get_form_configs()
         return Response(response, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
-        s = self.get_serializer(data=self.get_post_data())
-        s.is_valid(raise_exception=True)
-        s.save()
-        return Response({'success': s.data}, status=status.HTTP_201_CREATED)
+        if hasattr(self, 'repeaters') and hasattr(self, 'repeater_instance_key'):
+            try:
+                with transaction.atomic():
+                    form_errors = dict()
+                    data = get_test_post_data()
+                    repeater_data = dict()
+                    for repeater in self.repeaters:
+                        repeater_data[repeater] = data.pop(repeater, [])
+                    s = self.get_serializer(data=self.get_post_data(post_data=data))
+                    s.is_valid(raise_exception=True)
+                    inst = s.save()
+                    for repeater in self.repeaters:
+                        for index, post_data in enumerate(repeater_data[repeater]):
+                            post_data = self.get_post_data(post_data=post_data, serializer_class=self.repeaters[repeater])
+                            post_data[self.repeater_instance_key] = inst.pk
+                            s = self.repeaters[repeater](data=post_data)
+                            if s.is_valid():
+                                s.save()
+                            else:
+                                form_errors.update({f'{repeater}.{index}.{k}': v for k, v in s.errors.items()})
+                    if form_errors:
+                        raise ValidationError(form_errors)
+                    return Response({'success': s.data}, status=status.HTTP_201_CREATED)
+            except:
+                transaction.rollback()
+                raise
+        return self.create_or_update()
 
     def put(self, request, *args, **kwargs):
-        s = self.get_serializer(data=self.get_post_data(), instance=self.get_object())
+        return self.create_or_update(instance=self.get_object())
+
+    def create_or_update(self, instance=None):
+        s = self.get_serializer(data=self.get_post_data(), instance=instance)
         s.is_valid(raise_exception=True)
-        s.save()
-        return Response({'success': s.data}, status=status.HTTP_200_OK)
+        inst = s.save()
+        status_code = status.HTTP_200_OK if instance else status.HTTP_201_CREATED
+        return Response({'success': self.get_list_serializer(inst).data}, status=status_code)
 
     def delete(self, request, *args, **kwargs):
         self.get_object().delete()
         return Response({'success': 'Deleted'}, status=status.HTTP_200_OK)
 
 
-class EmployeeView(GenericAPICrudView):
+class EmployeeView(GenericAPICRUDView):
     model = Employee
-    serializer_class = EmployeeSerializer
+    serializer_class = EmployeeCreateUpdateSerializer
+    list_serializer_class = EmployeeListRetrieveSerializer
 
 
-class DepartmentView(GenericAPICrudView):
+class DepartmentView(GenericAPICRUDView):
     model = Department
-    serializer_class = DepartmentSerializer
+    serializer_class = DepartmentCreateUpdateSerializer
+    list_serializer_class = DepartmentListRetrieveSerializer
+    repeater_instance_key = 'department'
+    repeaters = {
+        'employees': EmployeeCreateUpdateSerializer,
+    }
 
     def get_queryset(self):
         return self.model.objects.prefetch_related('employees').all()
-
-    def post(self, request, *args, **kwargs):
-        try:
-            with transaction.atomic():
-                form_errors = dict()
-                data = get_test_post_data()
-                employees = data.pop('employees', [])
-                s = self.get_serializer(data=self.get_post_data(post_data=data))
-                s.is_valid(raise_exception=True)
-                dept = s.save()
-                for index, post_data in enumerate(employees):
-                    post_data = self.get_post_data(post_data=post_data, serializer_class=EmployeeSerializer)
-                    post_data['department'] = dept.pk
-                    s = EmployeeSerializer(data=post_data)
-                    if s.is_valid():
-                        s.save()
-                    else:
-                        form_errors.update({f'employees.{index}.{k}': v for k, v in s.errors.items()})
-                if form_errors:
-                    raise ValidationError(form_errors)
-                return Response({'success': s.data}, status=status.HTTP_201_CREATED)
-        except:
-            transaction.rollback()
-            raise
-        return Response({'success': s.data}, status=status.HTTP_201_CREATED)
-
 
 
